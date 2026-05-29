@@ -12,12 +12,13 @@
     "test": "echo \"No tests yet...\""
   },
   "dependencies": {
+    "@azure/data-tables": "^13.3.2",
     "@azure/functions": "^4.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "azure-functions-core-tools": "^4.x",
-    "@types/node": "18.x",
-    "typescript": "^5.0.0",
-    "rimraf": "^5.0.0"
+    "rimraf": "^5.0.0",
+    "typescript": "^6.0.0"
   }
 }
