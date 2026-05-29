@@ -1,5 +1,5 @@
 export type Config = {
-  ionBiz: { baseUrl: string; apiKey: string };
+  ionBiz: { baseUrl: string; clientId: string; clientSecret: string; scope: string };
   cobra: { baseUrl: string; apiKey: string };
   storage: { connectionString: string; tableName: string };
   initialLookbackDays: number;
@@ -22,7 +22,9 @@ const requireAll = (keys: string[]): Record<string, string> => {
 export const loadConfig = (): Config => {
   const env = requireAll([
     'IONBIZ_BASE_URL',
-    'IONBIZ_API_KEY',
+    'IONBIZ_CLIENT_ID',
+    'IONBIZ_CLIENT_SECRET',
+    'IONBIZ_SCOPE',
     'COBRA_BASE_URL',
     'COBRA_API_KEY',
     'AzureWebJobsStorage',
@@ -31,7 +33,9 @@ export const loadConfig = (): Config => {
   return {
     ionBiz: {
       baseUrl: env.IONBIZ_BASE_URL,
-      apiKey: env.IONBIZ_API_KEY,
+      clientId: env.IONBIZ_CLIENT_ID,
+      clientSecret: env.IONBIZ_CLIENT_SECRET,
+      scope: env.IONBIZ_SCOPE,
     },
     cobra: {
       baseUrl: env.COBRA_BASE_URL,
