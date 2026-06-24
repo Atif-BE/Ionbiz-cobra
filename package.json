@@ -13,7 +13,10 @@
   },
   "dependencies": {
     "@azure/data-tables": "^13.3.2",
-    "@azure/functions": "^4.0.0"
+    "@azure/functions": "^4.0.0",
+    "@azure/identity": "^4.13.1",
+    "@azure/keyvault-secrets": "^4.11.2",
+    "@azure/storage-queue": "^12.30.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

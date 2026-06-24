@@ -6,7 +6,7 @@ csx
 .vs
 edge
 Publish
-
+*.pdf
 *.user
 *.suo
 *.cscfg
