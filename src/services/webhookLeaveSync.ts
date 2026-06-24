@@ -3,6 +3,7 @@ import { CobraClient } from '../clients/cobraClient';
 import { IonBizClient } from '../clients/ionbizClient';
 import { ionBizToInternal, internalToCobra } from '../mappers/leaveMapper';
 import { SyncStateStore } from '../state/syncStateStore';
+import { IonBizWebhookPayload } from '../types/webhook';
 
 export type SyncSummary = {
   fetched: number;
@@ -11,41 +12,41 @@ export type SyncSummary = {
   failed: number;
 };
 
-export type LeaveSyncService = {
-  syncLeaves: () => Promise<SyncSummary>;
+export type WebhookLeaveSyncService = {
+  processPayload: (payload: IonBizWebhookPayload) => Promise<SyncSummary>;
 };
 
-const MS_PER_DAY = 86_400_000;
-
-export const createLeaveSyncService = (deps: {
+export const createWebhookLeaveSyncService = (deps: {
   ionBiz: IonBizClient;
   cobra: CobraClient;
   state: SyncStateStore;
   log: InvocationContext;
-  initialLookbackDays: number;
-}): LeaveSyncService => ({
-  syncLeaves: async () => {
-    const { ionBiz, cobra, state, log, initialLookbackDays } = deps;
+  insertAction: string;
+}): WebhookLeaveSyncService => ({
+  processPayload: async (payload) => {
+    const { ionBiz, cobra, state, log, insertAction } = deps;
 
     await state.init();
 
-    const runStartedAt = new Date();
-    const lastRun = await state.getLastRunTimestamp();
-    const since = lastRun ?? new Date(Date.now() - initialLookbackDays * MS_PER_DAY);
-
-    log.info(`Fetching IonBiz leaves since ${since.toISOString()}`);
-    const raw = await ionBiz.listLeavesSince(since);
-
+    const notifications = payload.Notifications ?? [];
     const summary: SyncSummary = {
-      fetched: raw.length,
+      fetched: notifications.length,
       synced: 0,
       skipped: 0,
       failed: 0,
     };
 
-    for (const item of raw) {
+    for (const notification of notifications) {
+      // Insert-only: ignore updates/deletes and any non-leave actions.
+      if (notification.Action !== insertAction) {
+        summary.skipped++;
+        continue;
+      }
+
       try {
-        const internal = ionBizToInternal(item);
+        const raw = await ionBiz.getLeaveById(notification.Id);
+        const internal = ionBizToInternal(raw);
+        // Dedupe also makes IonBiz's retries (3x / 1 min) idempotent.
         if (await state.hasSynced(internal.ionBizId)) {
           summary.skipped++;
           continue;
@@ -56,11 +57,10 @@ export const createLeaveSyncService = (deps: {
       } catch (err) {
         summary.failed++;
         const message = err instanceof Error ? err.message : String(err);
-        log.error(`Failed to sync leave ${item.id}: ${message}`);
+        log.error(`Failed to sync leave ${notification.Id}: ${message}`);
       }
     }
 
-    await state.setLastRunTimestamp(runStartedAt);
     return summary;
   },
 });

@@ -2,6 +2,7 @@ export type Config = {
   ionBiz: { baseUrl: string; clientId: string; clientSecret: string; scope: string };
   cobra: { baseUrl: string; apiKey: string };
   storage: { connectionString: string; tableName: string };
+  webhook: { secret: string; leaveInsertAction: string };
   initialLookbackDays: number;
 };
 
@@ -25,6 +26,7 @@ export const loadConfig = (): Config => {
     'IONBIZ_CLIENT_ID',
     'IONBIZ_CLIENT_SECRET',
     'IONBIZ_SCOPE',
+    'IONBIZ_WEBHOOK_SECRET',
     'COBRA_BASE_URL',
     'COBRA_API_KEY',
     'AzureWebJobsStorage',
@@ -44,6 +46,10 @@ export const loadConfig = (): Config => {
     storage: {
       connectionString: env.AzureWebJobsStorage,
       tableName: process.env.SYNC_STATE_TABLE_NAME ?? 'LeaveSyncState',
+    },
+    webhook: {
+      secret: env.IONBIZ_WEBHOOK_SECRET,
+      leaveInsertAction: process.env.IONBIZ_LEAVE_INSERT_ACTION ?? 'Leave_I',
     },
     initialLookbackDays: Number(process.env.INITIAL_LOOKBACK_DAYS ?? 7),
   };
