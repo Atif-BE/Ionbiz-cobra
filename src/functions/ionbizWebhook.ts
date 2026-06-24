@@ -1,18 +1,26 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
+import { createCobraAuth } from '../clients/cobraAuth';
+import { createCobraHttp } from '../clients/cobraHttp';
 import { createCobraClient } from '../clients/cobraClient';
+import { createCobraSalaryClient } from '../clients/cobraSalary';
 import { createIonBizAuth } from '../clients/ionbizAuth';
 import { createIonBizClient } from '../clients/ionbizClient';
 import { loadConfig } from '../config';
+import { loadMappingTable } from '../mappers/mappingTable';
+import { createDeferredQueue } from '../queue/deferredQueue';
+import { createExceptionSink } from '../services/exceptions';
+import { createLeaveWriter } from '../services/leaveWriter';
 import { createWebhookLeaveSyncService } from '../services/webhookLeaveSync';
 import { createSyncStateStore } from '../state/syncStateStore';
 import { IonBizWebhookPayload } from '../types/webhook';
+import { createRetry } from '../utils/retry';
 import { verifyIonbizSignature } from '../webhooks/signature';
 
 app.http('ionbizWebhook', {
   methods: ['POST'],
   authLevel: 'function',
   handler: async (request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> => {
-    const config = loadConfig();
+    const config = await loadConfig();
 
     // Read the raw body once and use it for BOTH signature verification and
     // parsing — never re-serialize before hashing or the HMAC won't match.
@@ -30,23 +38,53 @@ app.http('ionbizWebhook', {
       return { status: 400 };
     }
 
+    // IonBiz client (OAuth2 for the source OData API).
     const ionBizAuth = createIonBizAuth({
       tokenUrl: `${config.ionBiz.baseUrl}/Oauth/Token`,
       clientId: config.ionBiz.clientId,
       clientSecret: config.ionBiz.clientSecret,
       scope: config.ionBiz.scope,
     });
+    const ionBiz = createIonBizClient({ baseUrl: config.ionBiz.baseUrl }, ionBizAuth);
+
+    // Cobra side: auth -> http (with retry) -> domain + salary clients.
+    const retry = createRetry();
+    const cobraAuth = createCobraAuth({
+      tokenUrl: config.cobra.tokenUrl,
+      clientId: config.cobra.clientId,
+      clientSecret: config.cobra.clientSecret,
+      scope: config.cobra.scope,
+    });
+    const cobraHttp = createCobraHttp({ baseUrl: config.cobra.baseUrl }, cobraAuth, retry);
+    const cobra = createCobraClient(cobraHttp);
+    const salary = createCobraSalaryClient(cobraHttp);
+
+    // State, deferral queue, exception sink, and the writer that ties them together.
+    const state = createSyncStateStore(config.storage);
+    const queue = createDeferredQueue(config.queue);
+    const exceptions = createExceptionSink(context);
+    const writer = createLeaveWriter({ cobra, salary, state, queue, exceptions, log: context });
+
+    const mapping = loadMappingTable(config.mapping);
 
     const service = createWebhookLeaveSyncService({
-      ionBiz: createIonBizClient({ baseUrl: config.ionBiz.baseUrl }, ionBizAuth),
-      cobra: createCobraClient(config.cobra),
-      state: createSyncStateStore(config.storage),
+      ionBiz,
+      mapping,
+      state,
+      writer,
+      exceptions,
       log: context,
-      insertAction: config.webhook.leaveInsertAction,
+      actions: {
+        insertAction: config.webhook.insertAction,
+        updateAction: config.webhook.updateAction,
+        deleteAction: config.webhook.deleteAction,
+      },
     });
 
     const summary = await service.processPayload(payload);
-    context.info(`Webhook ${payload.Id} (attempt ${payload.Attempt}) summary: ${JSON.stringify(summary)}`);
+    context.info(
+      `Webhook ${payload.Id} (attempt ${payload.Attempt}) summary: ${JSON.stringify(summary)}`,
+    );
 
     // Signal failure so IonBiz retries (3x / 1 min). Synced rows are recorded
     // in state, so retries skip them and only re-attempt the failures.
